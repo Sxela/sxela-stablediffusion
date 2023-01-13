@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import sys, traceback
 device = 'cuda'
 opts = {
   "a":0,
@@ -12,6 +13,14 @@ opts = {
   "device":"cuda"
 }
 cmd_opts = opts = devices = SimpleNamespace(**opts)
+xformers_available = False
+if cmd_opts.xformers:
+    try:
+        import xformers.ops
+        xformers_available = True
+    except Exception:
+        print("Cannot import xformers", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
 
 # import argparse
 # import datetime
