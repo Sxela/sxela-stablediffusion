@@ -204,6 +204,7 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
 
         used_embeddings = {}
         chunk_count = max([len(x) for x in batch_chunks])
+        chunk_count = 1
 
         zs = []
         for i in range(chunk_count):
