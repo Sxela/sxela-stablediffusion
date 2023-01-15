@@ -10,7 +10,8 @@ opts = {
   "xformers":True,
   "embeddings_dir":'./embeddings',
   "force_enable_xformers": False,
-  "device":"cuda"
+  "device":"cuda",
+  "opt_sub_quad_attention":False
 }
 cmd_opts = opts = devices = SimpleNamespace(**opts)
 xformers_available = False
