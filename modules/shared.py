@@ -11,7 +11,14 @@ opts = {
   "embeddings_dir":'./embeddings',
   "force_enable_xformers": False,
   "device":"cuda",
-  "opt_sub_quad_attention":False
+  "opt_sub_quad_attention":False,
+  "opt_sub_quad_attention":False,
+  "sub_quad_q_chunk_size":1024,
+  "sub_quad_kv_chunk_siz":None,
+  "sub_quad_chunk_threshold":None, 
+  "opt_split_attention_invokeai":False,
+  "opt_split_attention_v1":False,
+  "disable_opt_split_attention":False
 }
 cmd_opts = opts = devices = SimpleNamespace(**opts)
 xformers_available = False
