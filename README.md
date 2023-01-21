@@ -1,8 +1,11 @@
 
-A frankenstein fork for WarpFusion
-Uses: 
-Stablediffusion 
+## A frankenstein fork for WarpFusion
+### Uses: 
+AUTOMATIC1111 StableDiffusion WEBUI  
 https://github.com/AUTOMATIC1111/stable-diffusion-webui
+
+TheLastBen fast stable diffusion xformers build / dependencies
+https://github.com/TheLastBen/fast-stable-diffusion
 
 # Stable Diffusion 2.0
 
