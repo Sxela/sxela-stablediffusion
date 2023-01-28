@@ -18,7 +18,8 @@ opts = {
   "sub_quad_chunk_threshold":None, 
   "opt_split_attention_invokeai":False,
   "opt_split_attention_v1":False,
-  "disable_opt_split_attention":False
+  "disable_opt_split_attention":False,
+  "opt_split_attention":False
 }
 cmd_opts = opts = devices = SimpleNamespace(**opts)
 xformers_available = False
