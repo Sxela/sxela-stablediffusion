@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import sys, traceback
-device = 'cuda'
+import torch
+device = torch.device("cuda")
 opts = {
   "a":0,
   "comma_padding_backtrack" : 0,
@@ -10,7 +11,7 @@ opts = {
   "xformers":True,
   "embeddings_dir":'./embeddings',
   "force_enable_xformers": False,
-  "device":"cuda",
+  "device":device,
   "opt_sub_quad_attention":False,
   "opt_sub_quad_attention":False,
   "sub_quad_q_chunk_size":1024,
