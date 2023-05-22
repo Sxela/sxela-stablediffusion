@@ -20,7 +20,10 @@ opts = {
   "opt_split_attention_invokeai":False,
   "opt_split_attention_v1":False,
   "disable_opt_split_attention":False,
-  "opt_split_attention":False
+  "opt_split_attention":False,
+  "opt_sdp_no_mem_attention": False,
+  "opt_sdp_attention":True,
+  "upcast_attn":False
 }
 cmd_opts = opts = devices = SimpleNamespace(**opts)
 xformers_available = False
@@ -29,8 +32,9 @@ if cmd_opts.xformers:
         import xformers.ops
         xformers_available = True
     except Exception:
-        print("Cannot import xformers", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
+        pass
+        # print("Cannot import xformers", file=sys.stderr)
+        # print(traceback.format_exc(), file=sys.stderr)
 
 # import argparse
 # import datetime
