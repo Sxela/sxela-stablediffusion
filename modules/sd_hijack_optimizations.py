@@ -20,8 +20,9 @@ if shared.cmd_opts.xformers or shared.cmd_opts.force_enable_xformers:
         import xformers.ops
         shared.xformers_available = True
     except Exception:
-        print("Cannot import xformers", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
+        pass
+        # print("Cannot import xformers", file=sys.stderr)
+        # print(traceback.format_exc(), file=sys.stderr)
 
 
 def get_available_vram():
