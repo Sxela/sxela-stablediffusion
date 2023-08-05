@@ -101,6 +101,22 @@ class StableDiffusionModelHijack:
         self.embedding_db.add_embedding_dir(cmd_opts.embeddings_dir)
 
     def hijack(self, m):
+        conditioner = getattr(m, 'conditioner', None)
+        if conditioner:
+            for i in range(len(conditioner.embedders)):
+                embedder = conditioner.embedders[i]
+                typename = type(embedder).__name__
+                if typename == 'FrozenOpenCLIPEmbedder':
+                    embedder.model.token_embedding = EmbeddingsWithFixes(embedder.model.token_embedding, self)
+                    conditioner.embedders[i] = sd_hijack_open_clip.FrozenOpenCLIPEmbedderWithCustomWords(embedder, self)
+                if typename == 'FrozenCLIPEmbedder':
+                    model_embeddings = embedder.transformer.text_model.embeddings
+                    model_embeddings.token_embedding = EmbeddingsWithFixes(model_embeddings.token_embedding, self)
+                    conditioner.embedders[i] = sd_hijack_clip.FrozenCLIPEmbedderWithCustomWords(embedder, self)
+                if typename == 'FrozenOpenCLIPEmbedder2':
+                    embedder.model.token_embedding = EmbeddingsWithFixes(embedder.model.token_embedding, self)
+                    conditioner.embedders[i] = sd_hijack_open_clip.FrozenOpenCLIPEmbedder2WithCustomWords(embedder, self)
+
         if type(m.cond_stage_model) == xlmr.BertSeriesModelWithTransformation:
             model_embeddings = m.cond_stage_model.roberta.embeddings
             model_embeddings.token_embedding = EmbeddingsWithFixes(model_embeddings.word_embeddings, self)

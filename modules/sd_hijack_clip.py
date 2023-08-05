@@ -3,7 +3,7 @@ from collections import namedtuple
 
 import torch
 
-from modules import prompt_parser, devices#, sd_hijack
+from modules import prompt_parser, devices, sd_hijack
 from modules.shared import opts
 
 
@@ -41,6 +41,11 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
 
         self.hijack: sd_hijack.StableDiffusionModelHijack = hijack
         self.chunk_length = 75
+
+        self.is_trainable = getattr(wrapped, 'is_trainable', False)
+        self.input_key = getattr(wrapped, 'input_key', 'txt')
+        self.legacy_ucg_val = None
+        self.ucg_rate = getattr(wrapped, 'ucg_rate', 0)
 
     def empty_chunk(self):
         """creates an empty PromptChunk and returns it"""
@@ -96,13 +101,18 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
         token_count = 0
         last_comma = -1
 
-        def next_chunk():
-            """puts current chunk into the list of results and produces the next one - empty"""
+        def next_chunk(is_last=False):
+            """puts current chunk into the list of results and produces the next one - empty;
+            if is_last is true, tokens <end-of-text> tokens at the end won't add to token_count"""
             nonlocal token_count
             nonlocal last_comma
             nonlocal chunk
 
-            token_count += len(chunk.tokens)
+            if is_last:
+                token_count += len(chunk.tokens)
+            else:
+                token_count += self.chunk_length
+
             to_add = self.chunk_length - len(chunk.tokens)
             if to_add > 0:
                 chunk.tokens += [self.id_end] * to_add
@@ -116,6 +126,10 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
             chunk = PromptChunk()
 
         for tokens, (text, weight) in zip(tokenized, parsed):
+            if text == 'BREAK' and weight == -1:
+                next_chunk()
+                continue
+
             position = 0
             while position < len(tokens):
                 token = tokens[position]
@@ -158,8 +172,8 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
                 chunk.multipliers += [weight] * emb_len
                 position += embedding_length_in_tokens
 
-        if len(chunk.tokens) > 0 or len(chunks) == 0:
-            next_chunk()
+        if chunk.tokens or not chunks:
+            next_chunk(is_last=True)
 
         return chunks, token_count
 
@@ -190,8 +204,9 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
         """
         Accepts an array of texts; Passes texts through transformers network to create a tensor with numerical representation of those texts.
         Returns a tensor with shape of (B, T, C), where B is length of the array; T is length, in tokens, of texts (including padding) - T will
-        be a multiple of 77; and C is dimensionality of each token - for SD1 it's 768, and for SD2 it's 1024.
+        be a multiple of 77; and C is dimensionality of each token - for SD1 it's 768, for SD2 it's 1024, and for SDXL it's 1280.
         An example shape returned by this function can be: (2, 77, 768).
+        For SDXL, instead of returning one tensor avobe, it returns a tuple with two: the other one with shape (B, 1280) with pooled values.
         Webui usually sends just one text at a time through this function - the only time when texts is an array with more than one elemenet
         is when you do prompt editing: "a picture of a [cat:dog:0.4] eating ice cream"
         """
@@ -204,7 +219,6 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
 
         used_embeddings = {}
         chunk_count = max([len(x) for x in batch_chunks])
-        chunk_count = 1
 
         zs = []
         for i in range(chunk_count):
@@ -215,7 +229,7 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
             self.hijack.fixes = [x.fixes for x in batch_chunk]
 
             for fixes in self.hijack.fixes:
-                for position, embedding in fixes:
+                for _position, embedding in fixes:
                     used_embeddings[embedding.name] = embedding
 
             z = self.process_tokens(tokens, multipliers)
@@ -225,7 +239,10 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
             embeddings_list = ", ".join([f'{name} [{embedding.checksum()}]' for name, embedding in used_embeddings.items()])
             self.hijack.comments.append(f"Used embeddings: {embeddings_list}")
 
-        return torch.hstack(zs)
+        if getattr(self.wrapped, 'return_pooled', False):
+            return torch.hstack(zs), zs[0].pooled
+        else:
+            return torch.hstack(zs)
 
     def process_tokens(self, remade_batch_tokens, batch_multipliers):
         """
@@ -243,14 +260,14 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
                 index = remade_batch_tokens[batch_pos].index(self.id_end)
                 tokens[batch_pos, index+1:tokens.shape[1]] = self.id_pad
 
-
         z = self.encode_with_transformers(tokens)
+
         # restoring original mean is likely not correct, but it seems to work well to prevent artifacts that happen otherwise
         batch_multipliers = torch.asarray(batch_multipliers).to(devices.device)
         original_mean = z.mean()
-        z = z * batch_multipliers.reshape(batch_multipliers.shape + (1,)).expand(z.shape)
+        z *= batch_multipliers.reshape(batch_multipliers.shape + (1,)).expand(z.shape)
         new_mean = z.mean()
-        z = z * (original_mean / new_mean)
+        z *= (original_mean / new_mean)
 
         return z
 
