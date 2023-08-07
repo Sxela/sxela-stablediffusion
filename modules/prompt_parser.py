@@ -220,7 +220,7 @@ def reconstruct_cond_batch(c: List[List[ScheduledPromptConditioning]], current_s
                 break
         res[i] = cond_schedule[target_index].cond
 
-    return res
+    return res[:,:77,:]
 
 
 def reconstruct_multicond_batch(c: MulticondLearnedConditioning, current_step):
