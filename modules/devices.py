@@ -4,6 +4,20 @@ import torch
 from modules import errors
 from packaging import version
 
+cpu = torch.device("cpu")
+device = device_interrogate = device_gfpgan = device_esrgan = device_codeformer = None
+dtype = torch.float16
+dtype_vae = torch.float16
+dtype_unet = torch.float16
+unet_needs_upcast = False
+
+def cond_cast_unet(input):
+    return input.to(dtype_unet) if unet_needs_upcast else input
+
+
+def cond_cast_float(input):
+    return input.float() if unet_needs_upcast else input
+
 
 # has_mps is only available in nightly pytorch (for now) and macOS 12.3+.
 # check `getattr` and try it for compatibility
