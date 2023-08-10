@@ -23,7 +23,8 @@ opts = {
   "opt_split_attention":False,
   "opt_sdp_no_mem_attention": False,
   "opt_sdp_attention":True,
-  "upcast_attn":False
+  "upcast_attn":False,
+  'disable_safe_unpickle':True
 }
 cmd_opts = opts = devices = SimpleNamespace(**opts)
 xformers_available = False
