@@ -211,16 +211,16 @@ def get_multicond_learned_conditioning(model, prompts, steps) -> MulticondLearne
 
 def reconstruct_cond_batch(c: List[List[ScheduledPromptConditioning]], current_step):
     param = c[0][0].cond
-    res = torch.zeros((len(c),) + param.shape, device=param.device, dtype=param.dtype)
+    res = torch.zeros((len(c),) + param.shape, device=param.device, dtype=param.dtype)[:,:77,:]
     for i, cond_schedule in enumerate(c):
         target_index = 0
         for current, (end_at, cond) in enumerate(cond_schedule):
             if current_step <= end_at:
                 target_index = current
                 break
-        res[i] = cond_schedule[target_index].cond
+        res[i] = cond_schedule[target_index].cond[:77]
 
-    return res[:,:77,:]
+    return res
 
 
 def reconstruct_multicond_batch(c: MulticondLearnedConditioning, current_step):
