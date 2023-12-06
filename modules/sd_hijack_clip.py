@@ -303,6 +303,16 @@ class FrozenCLIPEmbedderWithCustomWords(FrozenCLIPEmbedderWithCustomWordsBase):
         self.id_pad = self.id_end
 
     def tokenize(self, texts):
+        try: 
+            self.wrapped.tokenizer.clean_up_tokenization_spaces
+        except: 
+            self.wrapped.tokenizer.clean_up_tokenization_spaces = None
+             
+        try: 
+            self.wrapped.tokenizer._in_target_context_manager
+        except: 
+            self.wrapped.tokenizer._in_target_context_manager = True 
+        
         tokenized = self.wrapped.tokenizer(texts, truncation=False, add_special_tokens=False)["input_ids"]
 
         return tokenized
