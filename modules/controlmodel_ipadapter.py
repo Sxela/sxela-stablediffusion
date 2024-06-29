@@ -412,6 +412,7 @@ def hack_blk(block, function, type):
         all_hacks[block] = block.forward
         block.forward = attn_forward_hacked.__get__(block, type)
 
+    block.type = type
     block.ipadapter_hacks.append(function)
     return
 
@@ -419,6 +420,7 @@ def hack_blk(block, function, type):
 def set_model_attn2_replace(model, function, flag, id):
     from ldm.modules.attention import CrossAttention
     block = get_block(model, flag)[id][1].transformer_blocks[0].attn2
+    block.id = id
     hack_blk(block, function, CrossAttention)
     return
 
@@ -497,7 +499,13 @@ class PlugableIPAdapter(torch.nn.Module):
         return
 
     @torch.no_grad()
-    def hook(self, model, clip_vision_output, weight, start, end, dtype=torch.float32):
+    def hook(self, model, clip_vision_output, weight, start, end, dtype=torch.float32, 
+             layer_weights=None, 
+                      weight_composition=1.0,
+                      weight_faceidv2=None,
+                      weight_type="linear",
+                      combine_embeds="concat",
+                      embeds_scaling='V only'):
         global current_model
         current_model = model
 
@@ -549,6 +557,48 @@ class PlugableIPAdapter(torch.nn.Module):
                 set_model_patch_replace(model, self.patch_forward(number), "middle", 0, index)
                 number += 1
 
+
+        #taken from https://github.com/cubiq/ComfyUI_IPAdapter_plus
+        is_sdxl = self.sdxl
+        self.weight_type = weight_type
+        self.combine_embeds = combine_embeds
+        self.embeds_scaling = embeds_scaling
+
+        if isinstance(weight, list):
+            weight = weight[0]
+
+        # special weight types
+        if layer_weights is not None and layer_weights != '':
+            weight = { int(k): float(v)*weight for k, v in [x.split(":") for x in layer_weights.split(",")] }
+            weight_type = "linear"
+        elif weight_type == "style transfer":
+            weight = { 6:weight } if is_sdxl else { 0:weight, 1:weight, 2:weight, 3:weight, 9:weight, 10:weight, 11:weight, 12:weight, 13:weight, 14:weight, 15:weight }
+        elif weight_type == "composition":
+            weight = { 3:weight } if is_sdxl else { 4:weight*0.25, 5:weight }
+        elif weight_type == "strong style transfer":
+            if is_sdxl:
+                weight = { 0:weight, 1:weight, 2:weight, 4:weight, 5:weight, 6:weight, 7:weight, 8:weight, 9:weight, 10:weight }
+            else:
+                weight = { 0:weight, 1:weight, 2:weight, 3:weight, 6:weight, 7:weight, 8:weight, 9:weight, 10:weight, 11:weight, 12:weight, 13:weight, 14:weight, 15:weight }
+        elif weight_type == "style and composition":
+            if is_sdxl:
+                weight = { 3:weight_composition, 6:weight }
+            else:
+                weight = { 0:weight, 1:weight, 2:weight, 3:weight, 4:weight_composition*0.25, 5:weight_composition, 9:weight, 10:weight, 11:weight, 12:weight, 13:weight, 14:weight, 15:weight }
+        elif weight_type == "strong style and composition":
+            if is_sdxl:
+                weight = { 0:weight, 1:weight, 2:weight, 3:weight_composition, 4:weight, 5:weight, 6:weight, 7:weight, 8:weight, 9:weight, 10:weight }
+            else:
+                weight = { 0:weight, 1:weight, 2:weight, 3:weight, 4:weight_composition, 5:weight_composition, 6:weight, 7:weight, 8:weight, 9:weight, 10:weight, 11:weight, 12:weight, 13:weight, 14:weight, 15:weight }
+        elif weight_type == "style transfer precise":
+            if is_sdxl:
+                weight = { 3:weight, 6:weight }
+            else:
+                weight = { 0:weight, 1:weight, 2:weight, 3:weight, 4:weight*0.25, 5:weight, 9:weight, 10:weight, 11:weight, 12:weight, 13:weight, 14:weight, 15:weight }
+
+        print('Using weight type: ', weight_type, ' ', weight)
+        self.weight = weight
+
         return
 
     def call_ip(self, key: str, feat, device):
@@ -567,9 +617,52 @@ class PlugableIPAdapter(torch.nn.Module):
             h = attn_blk.heads
             head_dim = inner_dim // h
 
-            current_sampling_percent = getattr(current_model, 'current_sampling_percent', 0.5)
+            #ipadapter plus stuff
+            block_type = attn_blk.type 
+            layers = 11 if '101_to_k_ip' in self.ipadapter.ip_layers.to_kvs else 16 
+            t_idx = attn_blk.id
+            module_key = number * 2 + 1
+            weight_type = self.weight_type
+            cond =  self.image_emb
+            uncond =  self.uncond_image_emb
+            embeds_scaling = self.embeds_scaling
+            weight = self.weight
+
+            current_sampling_percent = getattr(current_model, 'current_sampling_percent', 0.5) #todo check it actually is updated - the %
             if current_sampling_percent < self.p_start or current_sampling_percent > self.p_end:
                 return 0
+           
+            if weight_type == 'ease in':
+                weight = weight * (0.05 + 0.95 * (1 - t_idx / layers))
+            elif weight_type == 'ease out':
+                weight = weight * (0.05 + 0.95 * (t_idx / layers))
+            elif weight_type == 'ease in-out':
+                weight = weight * (0.05 + 0.95 * (1 - abs(t_idx - (layers/2)) / (layers/2)))
+            elif weight_type == 'reverse in-out':
+                weight = weight * (0.05 + 0.95 * (abs(t_idx - (layers/2)) / (layers/2)))
+            elif weight_type == 'weak input' and block_type == 'input':
+                weight = weight * 0.2
+            elif weight_type == 'weak middle' and block_type == 'middle':
+                weight = weight * 0.2
+            elif weight_type == 'weak output' and block_type == 'output':
+                weight = weight * 0.2
+            elif weight_type == 'strong middle' and (block_type == 'input' or block_type == 'output'):
+                weight = weight * 0.2
+            elif isinstance(weight, dict):
+                if t_idx not in weight:
+                    return 0
+
+                if weight_type == "style transfer precise":
+                    if layers == 11 and t_idx == 3:
+                        uncond = cond
+                        cond = cond * 0
+                    elif layers == 16 and (t_idx == 4 or t_idx == 5):
+                        uncond = cond
+                        cond = cond * 0
+
+                weight = weight[t_idx]
+
+
 
             # cond_mark = current_model.cond_mark[:, :, :, 0].to(self.image_emb)
             
@@ -577,7 +670,7 @@ class PlugableIPAdapter(torch.nn.Module):
             # print('self.image_emb.shape, self.uncond_image_emb.shape, cond_mark.shape')
 
             # print(self.image_emb.shape, self.uncond_image_emb.shape, cond_mark.shape)
-            cond_uncond_image_emb = self.image_emb * cond_mark + self.uncond_image_emb * (1 - cond_mark)
+            cond_uncond_image_emb = cond  * cond_mark + uncond * (1 - cond_mark)
             k_key = f"{number * 2 + 1}_to_k_ip"
             v_key = f"{number * 2 + 1}_to_v_ip"
             ip_k = self.call_ip(k_key, cond_uncond_image_emb, device=q.device)
@@ -595,8 +688,30 @@ class PlugableIPAdapter(torch.nn.Module):
                 ip_k = ip_k.to(dtype=q.dtype)
                 ip_v = ip_v.to(dtype=q.dtype)
 
+
+            if embeds_scaling == 'K+mean(V) w/ C penalty':
+                scaling = float(ip_k.shape[2]) / 1280.0
+                weight = weight * scaling
+                ip_k = ip_k * weight
+                ip_v_mean = torch.mean(ip_v, dim=1, keepdim=True)
+                ip_v = (ip_v - ip_v_mean) + ip_v_mean * weight
+                
+            elif embeds_scaling == 'K+V w/ C penalty':
+                scaling = float(ip_k.shape[2]) / 1280.0
+                weight = weight * scaling
+                ip_k = ip_k * weight
+                ip_v = ip_v * weight
+                
+            elif embeds_scaling == 'K+V':
+                ip_k = ip_k * weight
+                ip_v = ip_v * weight
+                
+
             ip_out = torch.nn.functional.scaled_dot_product_attention(q, ip_k, ip_v, attn_mask=None, dropout_p=0.0, is_causal=False)
             ip_out = ip_out.transpose(1, 2).reshape(batch_size, -1, h * head_dim)
 
-            return ip_out * self.weight
+            if embeds_scaling not in ['K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty']:
+                ip_out = ip_out * weight
+
+            return ip_out# * self.weight
         return forward
