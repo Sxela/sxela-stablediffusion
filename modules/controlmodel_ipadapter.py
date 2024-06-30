@@ -429,6 +429,7 @@ def set_model_patch_replace(model, function, flag, id, trans_id):
     from sgm.modules.attention import CrossAttention
     blk = get_block(model, flag)
     block = blk[id][1].transformer_blocks[trans_id].attn2
+    block.id = id
     hack_blk(block, function, CrossAttention)
     return
 
