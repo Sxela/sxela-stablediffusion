@@ -429,6 +429,7 @@ def set_model_patch_replace(model, function, flag, id, trans_id):
     from sgm.modules.attention import CrossAttention
     blk = get_block(model, flag)
     block = blk[id][1].transformer_blocks[trans_id].attn2
+    block.id = id
     hack_blk(block, function, CrossAttention)
     return
 
@@ -505,7 +506,8 @@ class PlugableIPAdapter(torch.nn.Module):
                       weight_faceidv2=None,
                       weight_type="linear",
                       combine_embeds="concat",
-                      embeds_scaling='V only'):
+                      embeds_scaling='V only',
+                      flip_uc=False):
         global current_model
         current_model = model
 
@@ -517,6 +519,7 @@ class PlugableIPAdapter(torch.nn.Module):
         self.weight = weight
         device = torch.device('cpu')
         self.dtype = dtype
+        self.flip_uc = flip_uc
 
         self.ipadapter.to(device, dtype=self.dtype)
         if self.is_faceid and self.is_plus:
@@ -667,6 +670,8 @@ class PlugableIPAdapter(torch.nn.Module):
             # cond_mark = current_model.cond_mark[:, :, :, 0].to(self.image_emb)
             
             cond_mark = current_model.uc_mask_shape[:,None,None].to(self.image_emb)
+            if self.flip_uc:
+                cond_mark = 1-cond_mark
             # print('self.image_emb.shape, self.uncond_image_emb.shape, cond_mark.shape')
 
             # print(self.image_emb.shape, self.uncond_image_emb.shape, cond_mark.shape)
